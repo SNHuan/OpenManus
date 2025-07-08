@@ -64,11 +64,24 @@ class DockerSession:
             self.exec_id, socket=True, tty=True, stream=True, demux=True
         )
 
+        # 尝试多种方式获取socket连接
         if hasattr(socket_data, "_sock"):
             self.socket = socket_data._sock
             self.socket.setblocking(False)
+        elif hasattr(socket_data, "sock"):
+            self.socket = socket_data.sock
+            self.socket.setblocking(False)
+        elif hasattr(socket_data, "socket"):
+            self.socket = socket_data.socket
+            self.socket.setblocking(False)
         else:
-            raise RuntimeError("Failed to get socket connection")
+            # 如果无法获取socket，尝试直接使用socket_data
+            try:
+                self.socket = socket_data
+                if hasattr(self.socket, "setblocking"):
+                    self.socket.setblocking(False)
+            except Exception as e:
+                raise RuntimeError(f"Failed to get socket connection: {e}. Socket data type: {type(socket_data)}, attributes: {dir(socket_data)}")
 
         await self._read_until_prompt()
 
@@ -183,7 +196,12 @@ class DockerSession:
                                 command_sent = True
                                 continue
 
-                            if line.strip() == b"echo $?" or line.strip().isdigit():
+                            # 跳过echo $?命令本身，但不跳过退出码
+                            if line.strip() == b"echo $?":
+                                continue
+                            # 只跳过单独的退出码行（0, 1, 2等），但保留其他数字输出
+                            if line.strip().isdigit() and len(line.strip()) <= 3:
+                                # 检查是否是命令的退出码（通常在最后）
                                 continue
 
                             if line.strip():

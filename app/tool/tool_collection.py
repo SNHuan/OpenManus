@@ -1,5 +1,5 @@
 """Collection classes for managing multiple tools."""
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.exceptions import ToolError
 from app.logger import logger
@@ -12,9 +12,14 @@ class ToolCollection:
     class Config:
         arbitrary_types_allowed = True
 
-    def __init__(self, *tools: BaseTool):
+    def __init__(self, *tools: BaseTool, event_bus: Optional[Any] = None, session_id: Optional[str] = None):
         self.tools = tools
         self.tool_map = {tool.name: tool for tool in tools}
+        self.event_bus = event_bus
+        self.session_id = session_id
+
+        # 为支持事件总线的工具设置事件总线和会话ID
+        self._setup_tools_with_event_bus()
 
     def __iter__(self):
         return iter(self.tools)
@@ -69,3 +74,23 @@ class ToolCollection:
         for tool in tools:
             self.add_tool(tool)
         return self
+
+    def _setup_tools_with_event_bus(self):
+        """为支持事件总线的工具设置事件总线和会话ID"""
+        if not self.event_bus or not self.session_id:
+            return
+
+        for tool in self.tools:
+            # 检查工具是否支持事件总线
+            if hasattr(tool, 'event_bus') and hasattr(tool, 'session_id'):
+                # 使用object.__setattr__来绕过Pydantic的字段验证
+                object.__setattr__(tool, 'event_bus', self.event_bus)
+                object.__setattr__(tool, 'session_id', self.session_id)
+                if hasattr(tool, 'use_sandbox'):
+                    object.__setattr__(tool, 'use_sandbox', True)
+
+    def set_event_context(self, event_bus: Any, session_id: str):
+        """设置事件上下文"""
+        self.event_bus = event_bus
+        self.session_id = session_id
+        self._setup_tools_with_event_bus()

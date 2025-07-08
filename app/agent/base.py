@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -35,6 +35,10 @@ class BaseAgent(BaseModel, ABC):
     state: AgentState = Field(
         default=AgentState.IDLE, description="Current agent state"
     )
+
+    # Event system support
+    event_bus: Optional[Any] = Field(default=None, description="Event bus for publishing events")
+    session_id: Optional[str] = Field(default=None, description="Session ID for event correlation")
 
     # Execution control
     max_steps: int = Field(default=10, description="Maximum steps before termination")
@@ -128,6 +132,10 @@ class BaseAgent(BaseModel, ABC):
         if self.state != AgentState.IDLE:
             raise RuntimeError(f"Cannot run agent from state: {self.state}")
 
+        # 设置工具的事件上下文
+        if hasattr(self, 'available_tools') and self.event_bus and self.session_id:
+            self.available_tools.set_event_context(self.event_bus, self.session_id)
+
         if request:
             self.update_memory("user", request)
 
@@ -138,6 +146,13 @@ class BaseAgent(BaseModel, ABC):
             ):
                 self.current_step += 1
                 logger.info(f"Executing step {self.current_step}/{self.max_steps}")
+
+                # 发布步骤开始事件
+                await self._publish_event("agent.step.start", {
+                    "step_number": self.current_step,
+                    "max_steps": self.max_steps
+                })
+
                 step_result = await self.step()
 
                 # Check for stuck state
@@ -145,6 +160,12 @@ class BaseAgent(BaseModel, ABC):
                     self.handle_stuck_state()
 
                 results.append(f"Step {self.current_step}: {step_result}")
+
+                # 发布步骤结束事件
+                await self._publish_event("agent.step.end", {
+                    "step_number": self.current_step,
+                    "result": step_result
+                })
 
             if self.current_step >= self.max_steps:
                 self.current_step = 0
@@ -194,3 +215,15 @@ class BaseAgent(BaseModel, ABC):
     def messages(self, value: List[Message]):
         """Set the list of messages in the agent's memory."""
         self.memory.messages = value
+
+    async def _publish_event(self, event_type: str, data: dict):
+        """发布事件的统一方法"""
+        if self.event_bus and self.session_id:
+            from app.events.types import Event, EventType
+            event = Event(
+                event_type=EventType(event_type),
+                source=f"agent_{self.name}",
+                session_id=self.session_id,
+                data=data
+            )
+            await self.event_bus.publish(event)

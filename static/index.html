@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenManus - AI Agent 实时监控</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif;
+            background: #f8fafc;
+        }
+
+        /* 自定义导航栏 */
+        .custom-navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 1rem 0;
+        }
+
+        .navbar-brand {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: white !important;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: white;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+        }
+
+        .status-dot.running {
+            background: #f59e0b;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* 面板样式 */
+        .panel {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: none;
+            height: calc(100vh - 120px);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            padding: 1rem 1.5rem;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .panel-body {
+            padding: 1.5rem;
+            overflow-y: auto;
+            height: calc(100% - 60px);
+        }
+
+        /* 输入面板 */
+        .input-panel {
+            height: calc(100vh - 120px);
+        }
+
+        .input-panel .panel-body {
+            height: calc(100% - 60px);
+        }
+
+        /* 执行流程面板 */
+        .execution-panel {
+            height: calc(100vh - 120px);
+        }
+
+        .execution-panel .panel-body {
+            height: calc(100% - 60px);
+        }
+
+        /* 沙箱面板 */
+        .sandbox-panel {
+            height: calc(100vh - 120px);
+        }
+
+        .sandbox-body {
+            background: #1a1a1a;
+            color: #e5e7eb;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.85rem;
+            padding: 1rem;
+            height: calc(100% - 60px);
+            overflow-y: auto;
+        }
+
+        .sandbox-output {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        /* 按钮样式 */
+        .btn-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+        }
+
+        .btn-gradient:hover {
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+            color: white;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            color: #6c757d;
+            padding: 3rem 1rem;
+        }
+
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            color: #adb5bd;
+        }
+
+        /* 事件日志 */
+        .event-log {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 0.75rem;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+        }
+
+        /* 步骤显示 */
+        .step-item {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-left: 4px solid #f59e0b;
+        }
+
+        .step-item.completed {
+            border-left-color: #10b981;
+            background: #ecfdf5;
+        }
+
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+
+        .step-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            background: #f59e0b;
+            color: white;
+        }
+
+        .step-status.completed {
+            background: #10b981;
+        }
+
+        /* 思考过程样式 */
+        .thinking-process {
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 0.75rem;
+            background: #f9fafb;
+            margin-bottom: 0.75rem;
+        }
+
+        .thinking-completed {
+            background: #ecfdf5;
+            border-color: #d1fae5;
+        }
+
+        .thinking-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .thinking-model {
+            background: #667eea;
+            color: white;
+            padding: 0.125rem 0.375rem;
+            border-radius: 3px;
+            font-size: 0.75rem;
+        }
+
+        /* 工具调用样式 */
+        .tool-call {
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: #f9fafb;
+        }
+
+        .tool-success {
+            background: #ecfdf5;
+            border-color: #34d399;
+        }
+
+        .tool-error {
+            background: #fef2f2;
+            border-color: #f87171;
+        }
+
+        .tool-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .tool-name {
+            background: #6b7280;
+            color: white;
+            padding: 0.125rem 0.375rem;
+            border-radius: 3px;
+            font-size: 0.75rem;
+        }
+
+        /* AI回复样式 */
+        .ai-response {
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: #f0f9ff;
+            border-left: 3px solid #3b82f6;
+        }
+
+        .ai-response-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #1d4ed8;
+        }
+
+        .ai-response-content {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            padding: 0.75rem;
+        }
+
+        .ai-response-content pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.5;
+            font-family: inherit;
+            color: #374151;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 1200px) {
+            .panel {
+                height: auto;
+                min-height: 400px;
+                margin-bottom: 1rem;
+            }
+
+            .sandbox-body {
+                height: 300px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar custom-navbar">
+        <div class="container-fluid">
+            <span class="navbar-brand">
+                <i class="bi bi-robot"></i> OpenManus Agent
+            </span>
+            <div class="status-indicator">
+                <div class="status-dot" id="connection-dot"></div>
+                <span id="connection-status">未连接</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要内容 -->
+    <div class="container-fluid py-3">
+        <div class="row g-3">
+            <!-- 左侧输入面板 -->
+            <div class="col-lg-3">
+                <div class="card panel input-panel">
+                    <div class="card-header panel-header">
+                        <i class="bi bi-chat-dots"></i> 与AI对话
+                    </div>
+                    <div class="card-body panel-body">
+                        <div class="mb-3">
+                            <label for="prompt" class="form-label">请输入您的问题或任务</label>
+                            <textarea id="prompt" class="form-control" rows="4"
+                                placeholder="例如：帮我创建一个Python脚本来计算斐波那契数列">帮我创建一个简单的Python脚本，打印Hello World</textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="max-steps" class="form-label">最大执行步骤</label>
+                            <input type="number" id="max-steps" class="form-control" value="10" min="1" max="20">
+                        </div>
+
+                        <div class="d-grid gap-2 mb-3">
+                            <button id="start-btn" class="btn btn-gradient">
+                                <i class="bi bi-play-fill"></i> 开始执行
+                            </button>
+                            <button id="stop-btn" class="btn btn-danger" disabled>
+                                <i class="bi bi-stop-fill"></i> 停止执行
+                            </button>
+                        </div>
+
+                        <!-- 事件日志 -->
+                        <div class="mt-4">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0"><i class="bi bi-list-ul"></i> 事件日志</h6>
+                                <button onclick="clearEventLog()" class="btn btn-sm btn-outline-secondary">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                            <div class="event-log" id="event-log">
+                                <div class="text-center text-muted">
+                                    暂无事件日志
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中间执行流程面板 -->
+            <div class="col-lg-5">
+                <div class="card panel execution-panel">
+                    <div class="card-header panel-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-gear"></i> Agent执行流程</span>
+                        <small class="text-muted" id="current-step-info">等待启动...</small>
+                    </div>
+                    <div class="card-body panel-body">
+                        <div id="steps-display">
+                            <div class="empty-state">
+                                <i class="bi bi-robot"></i>
+                                <div>Agent尚未启动</div>
+                                <small class="text-muted">输入您的问题后点击"开始执行"</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧沙箱环境面板 -->
+            <div class="col-lg-4">
+                <div class="card panel sandbox-panel">
+                    <div class="card-header panel-header">
+                        <i class="bi bi-terminal"></i> 沙箱环境
+                    </div>
+                    <div class="sandbox-body">
+                        <div class="sandbox-output" id="sandbox-output">
+                            <div style="color: #10b981; margin-bottom: 1rem;">
+                                OpenManus Sandbox Environment
+                                =============================
+
+                                等待沙箱命令执行...
+
+                                这里将显示：
+                                • 沙箱命令执行 ($ command)
+                                • 命令输出结果
+                                • 文件读写操作
+                                • 错误信息
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // 全局变量
+        let websocket = null;
+        let currentSessionId = null;
+        let sessionSteps = {};
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function () {
+            updateConnectionStatus('disconnected');
+            addEventLog('系统', '页面加载完成', 'system');
+
+            // 绑定事件
+            document.getElementById('start-btn').addEventListener('click', startAgent);
+            document.getElementById('stop-btn').addEventListener('click', stopAgent);
+        });
+
+        // 更新连接状态
+        function updateConnectionStatus(status, message = '') {
+            const dot = document.getElementById('connection-dot');
+            const statusText = document.getElementById('connection-status');
+            const stepInfo = document.getElementById('current-step-info');
+
+            dot.className = `status-dot ${status}`;
+
+            switch (status) {
+                case 'connected':
+                    statusText.textContent = message || '已连接';
+                    break;
+                case 'running':
+                    statusText.textContent = message || '执行中';
+                    break;
+                case 'disconnected':
+                    statusText.textContent = message || '未连接';
+                    stepInfo.textContent = '等待启动...';
+                    break;
+            }
+        }
+
+        // 启动Agent
+        async function startAgent() {
+            const prompt = document.getElementById('prompt').value.trim();
+            const agentType = 'manus'; // 默认使用manus agent
+            const maxSteps = parseInt(document.getElementById('max-steps').value);
+
+            if (!prompt) {
+                alert('请输入任务描述');
+                return;
+            }
+
+            try {
+                updateConnectionStatus('running', '正在启动Agent...');
+                document.getElementById('start-btn').disabled = true;
+
+                // 清空之前的显示
+                clearStepsDisplay();
+                clearSandboxOutput();
+
+                const response = await fetch('/api/sessions/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        agent_type: agentType,
+                        max_steps: maxSteps,
+                        enable_real_time: true,
+                        use_sandbox: true,
+                        sandbox_config: {}
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                currentSessionId = data.session_id;
+
+                // 建立WebSocket连接
+                connectWebSocket(currentSessionId);
+
+                addEventLog('会话', `Agent启动成功: ${currentSessionId}`, 'session');
+
+            } catch (error) {
+                console.error('启动Agent失败:', error);
+                addEventLog('错误', `启动失败: ${error.message}`, 'error');
+                updateConnectionStatus('disconnected');
+                document.getElementById('start-btn').disabled = false;
+            }
+        }
+
+        // 停止Agent
+        async function stopAgent() {
+            if (!currentSessionId) return;
+
+            try {
+                const response = await fetch(`/api/sessions/${currentSessionId}/stop`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    addEventLog('会话', '停止请求已发送', 'session');
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+            } catch (error) {
+                console.error('停止Agent失败:', error);
+                addEventLog('错误', `停止失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 建立WebSocket连接
+        function connectWebSocket(sessionId) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            const wsUrl = `${protocol}//${host}/ws/${sessionId}`;
+            websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = function () {
+                updateConnectionStatus('connected', '实时连接已建立');
+                addEventLog('连接', 'WebSocket连接成功', 'system');
+                document.getElementById('stop-btn').disabled = false;
+            };
+
+            websocket.onmessage = function (event) {
+                const eventData = JSON.parse(event.data);
+                handleRealtimeEvent(eventData);
+            };
+
+            websocket.onclose = function () {
+                updateConnectionStatus('disconnected', '连接已断开');
+                addEventLog('连接', 'WebSocket连接断开', 'system');
+                document.getElementById('start-btn').disabled = false;
+                document.getElementById('stop-btn').disabled = true;
+            };
+
+            websocket.onerror = function (error) {
+                console.error('WebSocket错误:', error);
+                addEventLog('错误', 'WebSocket连接错误', 'error');
+            };
+        }
+
+        // 处理实时事件
+        function handleRealtimeEvent(eventData) {
+            const { event_type, timestamp, data, source, target, session_id, correlation_id, event_id } = eventData;
+
+            // 记录详细的事件信息
+            addEventLog('事件', '', getEventCategory(event_type), eventData);
+
+            // 根据事件类型更新UI
+            switch (event_type) {
+                case 'session.started':
+                    updateConnectionStatus('running', 'Agent正在执行');
+                    addEventLog('会话', 'Agent开始执行任务', 'session');
+                    clearSandboxOutput();
+                    break;
+
+                case 'agent.step.start':
+                    updateCurrentStep(data.step_number, data.max_steps);
+                    addStep(data.step_number, '🤔 正在思考...');
+                    break;
+
+                case 'llm.call.start':
+                    addLLMThinking(data.step_number, data);
+                    break;
+
+                case 'llm.call.end':
+                    updateLLMThinking(data.step_number, data);
+                    if (data.response_content && data.response_content.trim()) {
+                        addAIResponse(data.step_number, data.response_content);
+                    }
+                    break;
+
+                case 'llm.call.error':
+                    updateLLMError(data.step_number, data);
+                    break;
+
+                case 'tool.call.start':
+                    addToolCall(data.step_number, data);
+                    break;
+
+                case 'tool.call.end':
+                    updateToolCall(data.step_number, data);
+                    break;
+
+                // 沙箱相关事件
+                case 'sandbox.command.start':
+                    addSandboxOutput(`$ ${data.command}`, 'command');
+                    break;
+
+                case 'sandbox.command.output':
+                    // 实时显示沙箱命令输出
+                    if (data.content && data.content.trim()) {
+                        addSandboxOutput(data.content, data.output_type || 'output');
+                    }
+                    break;
+
+                case 'sandbox.command.end':
+                    const exitCode = data.exit_code || 0;
+                    const statusType = exitCode === 0 ? 'success' : 'error';
+                    addSandboxOutput(`命令执行完成 (退出码: ${exitCode})`, statusType);
+                    break;
+
+                case 'sandbox.command.error':
+                    addSandboxOutput(`命令执行错误: ${data.error}`, 'error');
+                    break;
+
+                case 'sandbox.file.read.result':
+                    addSandboxOutput(`📖 读取文件: ${data.file_path}`, 'file');
+                    break;
+
+                case 'sandbox.file.write.result':
+                    addSandboxOutput(`📝 写入文件: ${data.file_path}`, 'file');
+                    break;
+
+                case 'sandbox.resource.usage':
+                    // 资源使用情况不在沙箱面板显示，可以在其他地方显示或记录
+                    break;
+
+                case 'agent.step.end':
+                    updateStepComplete(data.step_number, data.result);
+                    break;
+
+                case 'session.stopped':
+                    updateConnectionStatus('disconnected', '执行已停止');
+                    addEventLog('会话', '会话已结束', 'session');
+                    break;
+
+                case 'session.error':
+                    updateConnectionStatus('disconnected', '执行出错');
+                    addEventLog('错误', `会话错误: ${data.error}`, 'error');
+                    break;
+            }
+        }
+
+        // 获取事件分类
+        function getEventCategory(eventType) {
+            if (eventType.startsWith('session.')) return 'session';
+            if (eventType.startsWith('agent.')) return 'agent';
+            if (eventType.startsWith('llm.')) return 'llm';
+            if (eventType.startsWith('tool.')) return 'tool';
+            return 'system';
+        }
+
+        // 更新当前步骤信息
+        function updateCurrentStep(stepNumber, maxSteps) {
+            const stepInfo = document.getElementById('current-step-info');
+            stepInfo.textContent = `第 ${stepNumber} 步 / 共 ${maxSteps} 步`;
+        }
+
+        // 清空步骤显示
+        function clearStepsDisplay() {
+            const stepsDisplay = document.getElementById('steps-display');
+            stepsDisplay.innerHTML = '';
+            sessionSteps = {};
+        }
+
+        // 添加步骤显示
+        function addStep(stepNumber, content) {
+            const stepsDisplay = document.getElementById('steps-display');
+
+            const stepElement = document.createElement('div');
+            stepElement.className = 'step-item';
+            stepElement.id = `step-${stepNumber}`;
+            stepElement.innerHTML = `
+                <div class="step-header">
+                    <span class="fw-bold">步骤 ${stepNumber}</span>
+                    <span class="step-status">进行中</span>
+                </div>
+                <div class="step-content text-muted">${content}</div>
+                <div class="step-details mt-2" id="step-details-${stepNumber}">
+                    <div class="thinking-section" id="thinking-${stepNumber}"></div>
+                    <div class="tools-section" id="tools-${stepNumber}"></div>
+                </div>
+            `;
+
+            stepsDisplay.appendChild(stepElement);
+            stepsDisplay.scrollTop = stepsDisplay.scrollHeight;
+        }
+
+        // 添加事件日志
+        function addEventLog(category, message, type = 'system', eventData = null) {
+            const eventLog = document.getElementById('event-log');
+
+            // 清空初始状态
+            if (eventLog.querySelector('.text-center')) {
+                eventLog.innerHTML = '';
+            }
+
+            const timestamp = new Date().toLocaleTimeString();
+
+            const eventElement = document.createElement('div');
+            eventElement.className = `mb-1 p-1 rounded`;
+
+            let badgeClass = 'bg-secondary';
+            switch (type) {
+                case 'session': badgeClass = 'bg-primary'; break;
+                case 'agent': badgeClass = 'bg-success'; break;
+                case 'llm': badgeClass = 'bg-warning'; break;
+                case 'tool': badgeClass = 'bg-info'; break;
+                case 'error': badgeClass = 'bg-danger'; break;
+            }
+
+            if (eventData) {
+                const detailedMessage = createDetailedEventMessage(eventData);
+                eventElement.innerHTML = `
+                    <div class="d-flex align-items-center gap-1">
+                        <small class="text-muted">${timestamp}</small>
+                        <span class="badge ${badgeClass} badge-sm">${eventData.event_type}</span>
+                    </div>
+                    <div class="small">${detailedMessage}</div>
+                `;
+            } else {
+                eventElement.innerHTML = `
+                    <div class="d-flex align-items-center gap-1">
+                        <small class="text-muted">${timestamp}</small>
+                        <span class="badge ${badgeClass} badge-sm">${category}</span>
+                    </div>
+                    <div class="small">${message}</div>
+                `;
+            }
+
+            eventLog.appendChild(eventElement);
+            eventLog.scrollTop = eventLog.scrollHeight;
+        }
+
+        // 清空事件日志
+        function clearEventLog() {
+            const eventLog = document.getElementById('event-log');
+            eventLog.innerHTML = `
+                <div class="text-center text-muted">
+                    暂无事件日志
+                </div>
+            `;
+        }
+
+        // 添加沙箱输出
+        function addSandboxOutput(content, type = 'info') {
+            const sandboxOutput = document.getElementById('sandbox-output');
+            const timestamp = new Date().toLocaleTimeString();
+
+            let color = '#e5e7eb';
+            let prefix = '';
+            let backgroundColor = 'transparent';
+
+            switch (type) {
+                case 'success':
+                    color = '#10b981';
+                    prefix = '✅ ';
+                    break;
+                case 'error':
+                    color = '#ef4444';
+                    prefix = '❌ ';
+                    backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                    break;
+                case 'warning':
+                    color = '#f59e0b';
+                    prefix = '⚠️ ';
+                    break;
+                case 'command':
+                    color = '#3b82f6';
+                    prefix = '$ ';
+                    backgroundColor = 'rgba(59, 130, 246, 0.1)';
+                    break;
+                case 'file':
+                    color = '#8b5cf6';
+                    prefix = '📁 ';
+                    break;
+                case 'tool':
+                    color = '#06b6d4';
+                    prefix = '🔧 ';
+                    break;
+                case 'output':
+                    color = '#d1d5db';
+                    prefix = '';
+                    break;
+                case 'stdout':
+                    color = '#e5e7eb';
+                    prefix = '';
+                    break;
+                case 'stderr':
+                    color = '#fca5a5';
+                    prefix = '';
+                    backgroundColor = 'rgba(252, 165, 165, 0.1)';
+                    break;
+            }
+
+            const outputLine = document.createElement('div');
+            outputLine.style.color = color;
+            outputLine.style.marginBottom = '0.25rem';
+            outputLine.style.padding = '0.25rem 0.5rem';
+            outputLine.style.borderRadius = '4px';
+            outputLine.style.backgroundColor = backgroundColor;
+            outputLine.style.fontFamily = 'Consolas, Monaco, "Courier New", monospace';
+            outputLine.style.fontSize = '0.85rem';
+            outputLine.style.lineHeight = '1.4';
+            outputLine.style.whiteSpace = 'pre-wrap';
+            outputLine.style.wordBreak = 'break-word';
+
+            // 对于命令输出，不显示时间戳和前缀
+            if (type === 'output' || type === 'stdout' || type === 'stderr') {
+                outputLine.textContent = content;
+            } else {
+                outputLine.innerHTML = `<span style="color: #6b7280; font-size: 0.75rem;">[${timestamp}]</span> ${prefix}${content}`;
+            }
+
+            sandboxOutput.appendChild(outputLine);
+            sandboxOutput.scrollTop = sandboxOutput.scrollHeight;
+        }
+
+        // 清空沙箱输出
+        function clearSandboxOutput() {
+            const sandboxOutput = document.getElementById('sandbox-output');
+            sandboxOutput.innerHTML = `
+                <div style="color: #10b981; margin-bottom: 1rem;">
+                                OpenManus Sandbox Environment
+                                =============================
+
+                                等待沙箱命令执行...
+
+                                这里将显示：
+                                • 沙箱命令执行 ($ command)
+                                • 命令输出结果
+                                • 文件读写操作
+                                • 错误信息
+                </div>
+            `;
+        }
+
+        // 创建详细的事件消息
+        function createDetailedEventMessage(eventData) {
+            const { event_type, data, source, target } = eventData;
+
+            switch (event_type) {
+                case 'agent.step.start':
+                    return `🚀 开始执行第 ${data.step_number} 步 (共 ${data.max_steps} 步)`;
+
+                case 'agent.step.end':
+                    const result = data.result || '';
+                    const shortResult = result.length > 100 ? result.substring(0, 100) + '...' : result;
+                    return `✅ 第 ${data.step_number} 步完成: ${shortResult}`;
+
+                case 'llm.call.start':
+                    const toolCount = data.tools ? data.tools.length : 0;
+                    const messageCount = data.messages ? data.messages.length : 0;
+                    return `🧠 AI开始思考 (模型: ${data.model}, 上下文: ${messageCount} 条消息, 可用工具: ${toolCount} 个)`;
+
+                case 'llm.call.end':
+                    const toolCalls = data.tool_calls || [];
+                    const tokens = `输入: ${data.input_tokens || 0}, 输出: ${data.output_tokens || 0}`;
+                    if (toolCalls.length > 0) {
+                        const toolNames = toolCalls.map(tc => tc.name).join(', ');
+                        return `🎯 AI决定使用工具: ${toolNames} (Token使用: ${tokens})`;
+                    } else if (data.response_content) {
+                        const response = data.response_content.substring(0, 80) + (data.response_content.length > 80 ? '...' : '');
+                        return `💬 AI回复: ${response} (Token使用: ${tokens})`;
+                    } else {
+                        return `🤔 AI思考完成 (Token使用: ${tokens})`;
+                    }
+
+                case 'tool.call.start':
+                    let args = '';
+                    try {
+                        const parsedArgs = JSON.parse(data.tool_arguments);
+                        args = Object.keys(parsedArgs).map(key => {
+                            const value = parsedArgs[key];
+                            return `${key}: ${typeof value === 'string' && value.length > 30 ? value.substring(0, 30) + '...' : value}`;
+                        }).join(', ');
+                    } catch (e) {
+                        args = data.tool_arguments.substring(0, 50) + '...';
+                    }
+                    return `🔧 开始执行工具: ${data.tool_name} (${args})`;
+
+                case 'tool.call.end':
+                    const toolResult = data.result || '';
+                    const shortToolResult = toolResult.length > 80 ? toolResult.substring(0, 80) + '...' : toolResult;
+                    const status = data.success ? '✅' : '❌';
+                    return `${status} 工具 ${data.tool_name} 执行${data.success ? '成功' : '失败'}: ${shortToolResult}`;
+
+                case 'session.started':
+                    return `🎬 会话开始 - Agent开始执行任务`;
+
+                case 'session.stopped':
+                    const reason = data.reason || 'unknown';
+                    const reasonText = {
+                        'task_completed': '任务完成',
+                        'user_requested': '用户停止',
+                        'error': '执行错误',
+                        'cancelled': '执行取消'
+                    }[reason] || reason;
+                    return `🏁 会话结束 - ${reasonText}`;
+
+                case 'session.error':
+                    return `💥 会话错误: ${data.error}`;
+
+                default:
+                    return `📋 ${event_type}: ${JSON.stringify(data)}`;
+            }
+        }
+
+        // 添加LLM思考过程显示
+        function addLLMThinking(stepNumber, data) {
+            const thinkingContainer = document.getElementById(`thinking-${stepNumber}`);
+            if (!thinkingContainer) return;
+
+            const thinkingElement = document.createElement('div');
+            thinkingElement.className = 'thinking-process';
+            thinkingElement.id = `thinking-${stepNumber}-process`;
+
+            const availableTools = data.tools ? data.tools.join(', ') : '无';
+            const messageCount = data.messages ? data.messages.length : 0;
+
+            thinkingElement.innerHTML = `
+                <div class="thinking-header">
+                    <span><i class="bi bi-brain"></i> AI思考中...</span>
+                    <span class="thinking-model">${data.model}</span>
+                </div>
+                <div class="small text-muted">
+                    <div><strong>上下文:</strong> ${messageCount} 条消息</div>
+                    <div><strong>可用工具:</strong> ${availableTools}</div>
+                    <div class="mt-1">
+                        <i class="bi bi-arrow-repeat spin"></i> 正在分析任务并制定执行计划...
+                    </div>
+                </div>
+            `;
+
+            thinkingContainer.appendChild(thinkingElement);
+        }
+
+        // 更新LLM思考结果
+        function updateLLMThinking(stepNumber, data) {
+            const thinkingElement = document.getElementById(`thinking-${stepNumber}-process`);
+            if (!thinkingElement) return;
+
+            const toolCalls = data.tool_calls || [];
+            const responseContent = data.response_content || '';
+
+            thinkingElement.classList.add('thinking-completed');
+
+            const statusDiv = thinkingElement.querySelector('.mt-1');
+            if (statusDiv) {
+                if (toolCalls.length > 0) {
+                    const toolNames = toolCalls.map(tc => tc.name).join(', ');
+                    statusDiv.innerHTML = `
+                        <i class="bi bi-check-circle text-success"></i> 决定使用工具: <strong>${toolNames}</strong>
+                    `;
+                } else if (responseContent) {
+                    statusDiv.innerHTML = `
+                        <i class="bi bi-check-circle text-success"></i> AI回复: ${responseContent.substring(0, 100)}${responseContent.length > 100 ? '...' : ''}
+                    `;
+                } else {
+                    statusDiv.innerHTML = `
+                        <i class="bi bi-check-circle text-success"></i> 思考完成
+                    `;
+                }
+            }
+
+            const tokensInfo = document.createElement('div');
+            tokensInfo.className = 'small text-muted mt-1';
+            tokensInfo.innerHTML = `
+                <i class="bi bi-cpu"></i> Token使用: 输入=${data.input_tokens || 0}, 输出=${data.output_tokens || 0}
+            `;
+            thinkingElement.appendChild(tokensInfo);
+        }
+
+        // 添加AI回复显示
+        function addAIResponse(stepNumber, responseContent) {
+            const toolsContainer = document.getElementById(`tools-${stepNumber}`);
+            if (!toolsContainer) return;
+
+            if (toolsContainer.querySelector('.ai-response')) {
+                return;
+            }
+
+            const responseElement = document.createElement('div');
+            responseElement.className = 'ai-response';
+
+            const hasToolCalls = toolsContainer.querySelector('.tool-call');
+            const title = hasToolCalls ? 'AI说明' : 'AI回复';
+
+            responseElement.innerHTML = `
+                <div class="ai-response-header">
+                    <i class="bi bi-robot"></i> ${title}
+                </div>
+                <div class="ai-response-content">
+                    <pre>${responseContent}</pre>
+                </div>
+            `;
+
+            if (hasToolCalls) {
+                toolsContainer.insertBefore(responseElement, toolsContainer.firstChild);
+            } else {
+                toolsContainer.appendChild(responseElement);
+            }
+        }
+
+        // 添加工具调用显示
+        function addToolCall(stepNumber, data) {
+            const toolsContainer = document.getElementById(`tools-${stepNumber}`);
+            if (!toolsContainer) return;
+
+            const toolElement = document.createElement('div');
+            const isAskHuman = data.tool_name === 'ask_human';
+            toolElement.className = `tool-call ${isAskHuman ? 'border-warning' : ''}`;
+            toolElement.id = `tool-${stepNumber}-${data.tool_call_id}`;
+
+            let toolArgs = '';
+            let questionContent = '';
+
+            if (isAskHuman) {
+                try {
+                    const args = JSON.parse(data.tool_arguments);
+                    questionContent = args.inquire || args.question || '';
+                } catch (e) {
+                    questionContent = data.tool_arguments;
+                }
+            } else {
+                try {
+                    const args = JSON.parse(data.tool_arguments);
+                    toolArgs = Object.entries(args).map(([key, value]) =>
+                        `${key}: ${typeof value === 'string' && value.length > 50 ? value.substring(0, 50) + '...' : value}`
+                    ).join(', ');
+                } catch (e) {
+                    toolArgs = data.tool_arguments;
+                }
+            }
+
+            if (isAskHuman) {
+                toolElement.innerHTML = `
+                    <div class="tool-header">
+                        <span><i class="bi bi-question-circle"></i> AI提问</span>
+                        <span class="badge bg-warning text-dark">等待用户回复...</span>
+                    </div>
+                    <div class="alert alert-warning mb-2">
+                        <strong><i class="bi bi-robot"></i> AI问题:</strong><br>
+                        ${questionContent}
+                    </div>
+                    <div class="text-muted small">
+                        <i class="bi bi-hourglass-split"></i> 请在控制台中回复AI的问题...
+                    </div>
+                    <div class="tool-result mt-2" id="tool-result-${data.tool_call_id}">
+                        <span class="text-muted"><i class="bi bi-clock"></i> 等待用户输入...</span>
+                    </div>
+                `;
+            } else {
+                toolElement.innerHTML = `
+                    <div class="tool-header">
+                        <span><i class="bi bi-tools"></i> ${data.tool_name}</span>
+                        <span class="badge bg-primary">执行中...</span>
+                    </div>
+                    <div class="small text-muted mb-2">
+                        <strong>参数:</strong> ${toolArgs}
+                    </div>
+                    <div class="tool-result" id="tool-result-${data.tool_call_id}">
+                        <span class="text-muted"><i class="bi bi-arrow-repeat spin"></i> 正在执行...</span>
+                    </div>
+                `;
+            }
+
+            toolsContainer.appendChild(toolElement);
+        }
+
+        // 更新工具调用结果
+        function updateToolCall(stepNumber, data) {
+            const toolElement = document.getElementById(`tool-${stepNumber}-${data.tool_call_id}`);
+            if (!toolElement) return;
+
+            const isAskHuman = data.tool_name === 'ask_human';
+
+            const statusElement = toolElement.querySelector('.badge');
+            if (statusElement) {
+                if (isAskHuman) {
+                    statusElement.textContent = data.success ? '✅ 用户已回复' : '❌ 获取回复失败';
+                    statusElement.className = data.success ? 'badge bg-success' : 'badge bg-danger';
+                } else {
+                    statusElement.textContent = data.success ? '✅ 完成' : '❌ 失败';
+                    statusElement.className = data.success ? 'badge bg-success' : 'badge bg-danger';
+                }
+            }
+
+            const resultElement = document.getElementById(`tool-result-${data.tool_call_id}`);
+            if (resultElement) {
+                const result = data.result || '无输出';
+
+                if (isAskHuman && data.success) {
+                    resultElement.innerHTML = `
+                        <div class="alert alert-info mb-0">
+                            <strong><i class="bi bi-person"></i> 用户回复:</strong><br>
+                            ${result}
+                        </div>
+                    `;
+                } else {
+                    const shortResult = result.length > 200 ? result.substring(0, 200) + '...' : result;
+                    resultElement.innerHTML = `<strong>结果:</strong> <pre class="small mt-1 p-2 bg-light rounded">${shortResult}</pre>`;
+                }
+            }
+
+            toolElement.className = `tool-call ${data.success ? 'tool-success' : 'tool-error'}`;
+        }
+
+        // 更新LLM错误
+        function updateLLMError(stepNumber, data) {
+            const thinkingElement = document.getElementById(`thinking-${stepNumber}-process`);
+            if (!thinkingElement) return;
+
+            thinkingElement.classList.add('border-danger');
+
+            const statusDiv = thinkingElement.querySelector('.mt-1');
+            if (statusDiv) {
+                statusDiv.innerHTML = `
+                    <i class="bi bi-exclamation-triangle text-danger"></i> 思考失败: ${data.error}
+                `;
+            }
+        }
+
+        // 更新步骤完成
+        function updateStepComplete(stepNumber, result) {
+            const stepElement = document.getElementById(`step-${stepNumber}`);
+            if (!stepElement) return;
+
+            const statusElement = stepElement.querySelector('.step-status');
+            if (statusElement) {
+                statusElement.textContent = '✅ 完成';
+                statusElement.className = 'step-status completed';
+            }
+
+            const contentElement = stepElement.querySelector('.step-content');
+            if (contentElement) {
+                const toolsContainer = document.getElementById(`tools-${stepNumber}`);
+                const hasAIResponse = toolsContainer && toolsContainer.querySelector('.ai-response');
+                const hasToolCalls = toolsContainer && toolsContainer.querySelector('.tool-call');
+
+                if (hasAIResponse && !hasToolCalls) {
+                    contentElement.innerHTML = `<i class="bi bi-chat-dots"></i> AI已回复您的问题`;
+                } else if (hasToolCalls) {
+                    contentElement.innerHTML = `<i class="bi bi-tools"></i> 工具执行完成`;
+                } else {
+                    const shortResult = result && result.length > 150 ? result.substring(0, 150) + '...' : result || '步骤完成';
+                    contentElement.innerHTML = `<i class="bi bi-check-circle"></i> ${shortResult}`;
+                }
+            }
+
+            stepElement.className = 'step-item completed';
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,19 @@
+# Doubao (豆包) LLM configuration for OpenManus Real-time Tracking
+[llm]
+api_type = 'openai'                                                    # Doubao uses OpenAI-compatible API
+model = "ep-20250620094521-tdv5v"                                     # Your Doubao endpoint ID
+base_url = "https://ark.cn-beijing.volces.com/api/v3"                # Doubao API base URL
+api_key = "0f7502a9-c9a1-43c5-951a-7a2e39df15df"                    # Your Doubao API key
+max_tokens = 32768                                                    # Maximum number of tokens in the response
+temperature = 0.0                                                     # Controls randomness
+api_version = ""                                                      # Not used for Doubao
+
+# Optional configuration for vision model (if available)
+[llm.vision]
+api_type = 'openai'                                                   # Doubao uses OpenAI-compatible API
+model = "ep-20250620094521-tdv5v"                                     # Your Doubao vision endpoint (same as text for now)
+base_url = "https://ark.cn-beijing.volces.com/api/v3"                # Doubao API base URL for vision model
+api_key = "0f7502a9-c9a1-43c5-951a-7a2e39df15df"                    # Your Doubao API key for vision model
+max_tokens = 32768                                                    # Maximum number of tokens in the response
+temperature = 0.0                                                     # Controls randomness for vision model
+api_version = ""                                                      # Not used for Doubao

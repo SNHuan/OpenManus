@@ -43,8 +43,15 @@ class SandboxManager:
         self.idle_timeout = idle_timeout
         self.cleanup_interval = cleanup_interval
 
-        # Docker client
-        self._client = docker.from_env()
+        # Docker client - 优雅处理Docker不可用的情况
+        try:
+            self._client = docker.from_env()
+            self._docker_available = True
+            logger.info("Docker client initialized successfully")
+        except Exception as e:
+            logger.warning(f"Docker not available: {e}")
+            self._client = None
+            self._docker_available = False
 
         # Resource mappings
         self._sandboxes: Dict[str, DockerSandbox] = {}
@@ -71,6 +78,10 @@ class SandboxManager:
         Returns:
             bool: Whether image is available.
         """
+        if not self._docker_available:
+            logger.warning(f"Docker not available, cannot ensure image {image}")
+            return False
+
         try:
             self._client.images.get(image)
             return True
@@ -128,6 +139,9 @@ class SandboxManager:
         Raises:
             RuntimeError: If max sandbox count reached or creation fails.
         """
+        if not self._docker_available:
+            raise RuntimeError("Docker is not available. Please start Docker Desktop and try again.")
+
         async with self._global_lock:
             if len(self._sandboxes) >= self.max_sandboxes:
                 raise RuntimeError(

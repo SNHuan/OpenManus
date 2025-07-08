@@ -43,6 +43,18 @@ class ToolCallAgent(ReActAgent):
             self.messages += [user_msg]
 
         try:
+            # 发布LLM调用开始事件
+            await self._publish_event("llm.call.start", {
+                "model": self.llm.model,
+                "step_number": self.current_step,
+                "messages": [msg.to_dict() for msg in self.messages],
+                "system_prompt": self.system_prompt,
+                "tools": [tool.name for tool in self.available_tools.tools],
+                "tool_choice": str(self.tool_choices),
+                "max_tokens": self.llm.max_tokens,
+                "temperature": self.llm.temperature
+            })
+
             # Get response with tool options
             response = await self.llm.ask_tool(
                 messages=self.messages,
@@ -76,6 +88,17 @@ class ToolCallAgent(ReActAgent):
             response.tool_calls if response and response.tool_calls else []
         )
         content = response.content if response and response.content else ""
+
+        # 发布LLM调用结束事件
+        await self._publish_event("llm.call.end", {
+            "model": self.llm.model,
+            "step_number": self.current_step,
+            "response_content": content,
+            "tool_calls": [{"name": tc.function.name, "arguments": tc.function.arguments} for tc in tool_calls] if tool_calls else [],
+            "input_tokens": getattr(self.llm, 'total_input_tokens', 0),
+            "output_tokens": getattr(self.llm, 'total_completion_tokens', 0),
+            "success": True
+        })
 
         # Log response info
         logger.info(f"✨ {self.name}'s thoughts: {content}")
@@ -120,6 +143,15 @@ class ToolCallAgent(ReActAgent):
 
             return bool(self.tool_calls)
         except Exception as e:
+            # 发布LLM调用错误事件
+            await self._publish_event("llm.call.error", {
+                "model": getattr(self.llm, 'model', 'unknown'),
+                "step_number": self.current_step,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "success": False
+            })
+
             logger.error(f"🚨 Oops! The {self.name}'s thinking process hit a snag: {e}")
             self.memory.add_message(
                 Message.assistant_message(
@@ -142,6 +174,14 @@ class ToolCallAgent(ReActAgent):
             # Reset base64_image for each tool call
             self._current_base64_image = None
 
+            # 发布工具调用开始事件
+            await self._publish_event("tool.call.start", {
+                "tool_name": command.function.name,
+                "tool_arguments": command.function.arguments,
+                "tool_call_id": command.id,
+                "step_number": self.current_step
+            })
+
             result = await self.execute_tool(command)
 
             if self.max_observe:
@@ -150,6 +190,15 @@ class ToolCallAgent(ReActAgent):
             logger.info(
                 f"🎯 Tool '{command.function.name}' completed its mission! Result: {result}"
             )
+
+            # 发布工具调用结束事件
+            await self._publish_event("tool.call.end", {
+                "tool_name": command.function.name,
+                "tool_call_id": command.id,
+                "result": str(result)[:500] + "..." if len(str(result)) > 500 else str(result),  # 限制结果长度
+                "step_number": self.current_step,
+                "success": True
+            })
 
             # Add tool response to memory
             tool_msg = Message.tool_message(
