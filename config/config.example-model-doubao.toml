@@ -1,0 +1,22 @@
+# 豆包模型配置
+[llm]
+model = ""          # 豆包模型ID或Endpoint ID
+base_url = ""  # 豆包API端点
+api_key = ""      # 豆包API Key
+max_tokens = 4096                          # 最大输出token数
+temperature = 1.0                          # 采样温度
+api_type = "doubao"                        # API类型
+api_version = "v3"                         # API版本
+
+
+# 豆包模型配置
+[llm.vision]
+model = ""          # 豆包模型ID或Endpoint ID
+base_url = ""  # 豆包API端点
+api_key = ""      # 豆包API Key
+max_tokens = 4096                          # 最大输出token数
+temperature = 1.0                          # 采样温度
+api_type = "doubao"                        # API类型
+api_version = "v3"                         # API版本
+
+

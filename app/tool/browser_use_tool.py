@@ -3,6 +3,10 @@ import base64
 import json
 from typing import Generic, Optional, TypeVar
 
+# Windows event loop policy handling
+# Note: Event loop policy is managed globally in app.api.main
+# to avoid conflicts between different modules
+
 from browser_use import Browser as BrowserUseBrowser
 from browser_use import BrowserConfig
 from browser_use.browser.context import BrowserContext, BrowserContextConfig
@@ -140,52 +144,57 @@ class BrowserUseTool(BaseTool, Generic[Context]):
 
     async def _ensure_browser_initialized(self) -> BrowserContext:
         """Ensure browser and context are initialized."""
-        if self.browser is None:
-            browser_config_kwargs = {"headless": False, "disable_security": True}
+        try:
+            if self.browser is None:
+                browser_config_kwargs = {"headless": True, "disable_security": True}  # Use headless by default
 
-            if config.browser_config:
-                from browser_use.browser.browser import ProxySettings
+                if config.browser_config:
+                    from browser_use.browser.browser import ProxySettings
 
-                # handle proxy settings.
-                if config.browser_config.proxy and config.browser_config.proxy.server:
-                    browser_config_kwargs["proxy"] = ProxySettings(
-                        server=config.browser_config.proxy.server,
-                        username=config.browser_config.proxy.username,
-                        password=config.browser_config.proxy.password,
-                    )
+                    # handle proxy settings.
+                    if config.browser_config.proxy and config.browser_config.proxy.server:
+                        browser_config_kwargs["proxy"] = ProxySettings(
+                            server=config.browser_config.proxy.server,
+                            username=config.browser_config.proxy.username,
+                            password=config.browser_config.proxy.password,
+                        )
 
-                browser_attrs = [
-                    "headless",
-                    "disable_security",
-                    "extra_chromium_args",
-                    "chrome_instance_path",
-                    "wss_url",
-                    "cdp_url",
-                ]
+                    browser_attrs = [
+                        "headless",
+                        "disable_security",
+                        "extra_chromium_args",
+                        "chrome_instance_path",
+                        "wss_url",
+                        "cdp_url",
+                    ]
 
-                for attr in browser_attrs:
-                    value = getattr(config.browser_config, attr, None)
-                    if value is not None:
-                        if not isinstance(value, list) or value:
-                            browser_config_kwargs[attr] = value
+                    for attr in browser_attrs:
+                        value = getattr(config.browser_config, attr, None)
+                        if value is not None:
+                            if not isinstance(value, list) or value:
+                                browser_config_kwargs[attr] = value
 
-            self.browser = BrowserUseBrowser(BrowserConfig(**browser_config_kwargs))
+                self.browser = BrowserUseBrowser(BrowserConfig(**browser_config_kwargs))
 
-        if self.context is None:
-            context_config = BrowserContextConfig()
+            if self.context is None:
+                context_config = BrowserContextConfig()
 
-            # if there is context config in the config, use it.
-            if (
-                config.browser_config
-                and hasattr(config.browser_config, "new_context_config")
-                and config.browser_config.new_context_config
-            ):
-                context_config = config.browser_config.new_context_config
+                # if there is context config in the config, use it.
+                if (
+                    config.browser_config
+                    and hasattr(config.browser_config, "new_context_config")
+                    and config.browser_config.new_context_config
+                ):
+                    context_config = config.browser_config.new_context_config
 
-            self.context = await self.browser.new_context(context_config)
-            self.dom_service = DomService(await self.context.get_current_page())
+                self.context = await self.browser.new_context(context_config)
+                self.dom_service = DomService(await self.context.get_current_page())
 
-        return self.context
+            return self.context
+
+        except Exception as e:
+            # If browser initialization fails, raise a clear error
+            raise RuntimeError(f"Failed to initialize browser: {str(e)}. This might be due to missing browser dependencies or Windows event loop issues.")
 
     async def execute(
         self,
@@ -223,6 +232,10 @@ class BrowserUseTool(BaseTool, Generic[Context]):
         async with self.lock:
             try:
                 context = await self._ensure_browser_initialized()
+            except Exception as e:
+                return ToolResult(error=f"Browser initialization failed: {str(e)}")
+
+            try:
 
                 # Get max content length from config
                 max_content_length = getattr(

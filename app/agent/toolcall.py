@@ -88,6 +88,11 @@ class ToolCallAgent(ReActAgent):
             )
             logger.info(f"🔧 Tool arguments: {tool_calls[0].function.arguments}")
 
+        # Store step details for event publishing
+        self._current_step_thoughts = content
+        self._current_step_tools = [call.function.name for call in tool_calls] if tool_calls else []
+        self._current_step_tool_count = len(tool_calls) if tool_calls else 0
+
         try:
             if response is None:
                 raise RuntimeError("No response received from the LLM")
@@ -130,6 +135,11 @@ class ToolCallAgent(ReActAgent):
 
     async def act(self) -> str:
         """Execute tool calls and handle their results"""
+        # Check for interrupt before executing tools
+        if await self._check_interrupt():
+            logger.info("Agent interrupted before tool execution")
+            return "Execution interrupted by user"
+
         if not self.tool_calls:
             if self.tool_choices == ToolChoice.REQUIRED:
                 raise ValueError(TOOL_CALL_REQUIRED)
@@ -139,10 +149,22 @@ class ToolCallAgent(ReActAgent):
 
         results = []
         for command in self.tool_calls:
+            # Check for interrupt before each tool execution
+            if await self._check_interrupt():
+                logger.info(f"Agent interrupted before executing tool '{command.function.name}'")
+                results.append("Tool execution interrupted by user")
+                break
+
             # Reset base64_image for each tool call
             self._current_base64_image = None
 
             result = await self.execute_tool(command)
+
+            # Check for interrupt after tool execution
+            if await self._check_interrupt():
+                logger.info(f"Agent interrupted after executing tool '{command.function.name}'")
+                results.append("Tool execution interrupted by user")
+                break
 
             if self.max_observe:
                 result = result[: self.max_observe]
@@ -176,7 +198,11 @@ class ToolCallAgent(ReActAgent):
             # Parse arguments
             args = json.loads(command.function.arguments or "{}")
 
-            # Execute the tool
+            # Special handling for CreateChatCompletion tool - use streaming
+            if name == "create_chat_completion":
+                return await self._execute_chat_completion_with_streaming(args)
+
+            # Execute the tool normally
             logger.info(f"🔧 Activating tool: '{name}'...")
             result = await self.available_tools.execute(name=name, tool_input=args)
 
@@ -188,9 +214,23 @@ class ToolCallAgent(ReActAgent):
                 # Store the base64_image for later use in tool_message
                 self._current_base64_image = result.base64_image
 
-            # Format result for display (standard case)
+            # Send tool result display event
+            await self._send_tool_result_event(name, result)
+
+            # Format result for display with length limit
+            result_str = str(result) if result else "No output"
+
+            # Limit tool result display length for internal processing
+            max_length = 500
+            if len(result_str) > max_length:
+                result_str = result_str[:max_length] + "... (truncated)"
+
+            # Filter out terminate tool observations - they're not needed for display
+            if name.lower() == "terminate":
+                return "Task completed successfully."
+
             observation = (
-                f"Observed output of cmd `{name}` executed:\n{str(result)}"
+                f"Observed output of cmd `{name}` executed:\n{result_str}"
                 if result
                 else f"Cmd `{name}` completed with no output"
             )
@@ -206,6 +246,92 @@ class ToolCallAgent(ReActAgent):
             error_msg = f"⚠️ Tool '{name}' encountered a problem: {str(e)}"
             logger.exception(error_msg)
             return f"Error: {error_msg}"
+
+    async def _execute_chat_completion_with_streaming(self, args: dict) -> str:
+        """Execute CreateChatCompletion with streaming support"""
+        from app.event import LLMStreamEvent
+
+        try:
+            # Get the response content from args
+            response_content = args.get("response", "")
+
+            if not response_content:
+                return "Error: No response content provided"
+
+            # Send streaming events for the response
+            await self._send_streaming_response(response_content)
+
+            # Execute the tool normally to get the result
+            logger.info(f"🔧 Activating tool: 'create_chat_completion'...")
+            result = await self.available_tools.execute(name="create_chat_completion", tool_input=args)
+
+            # Handle special tools
+            await self._handle_special_tool(name="create_chat_completion", result=result)
+
+            # Format result for display - simplified for create_chat_completion
+            observation = "Response sent to user successfully."
+
+            return observation
+
+        except Exception as e:
+            error_msg = f"⚠️ Tool 'create_chat_completion' encountered a problem: {str(e)}"
+            logger.exception(error_msg)
+            return f"Error: {error_msg}"
+
+    async def _send_streaming_response(self, content: str):
+        """Send streaming events for LLM response"""
+        from app.event import LLMStreamEvent
+        from app.event.manager import event_manager
+
+        # Split content into chunks for streaming effect
+        chunk_size = 10  # Characters per chunk
+        chunks = [content[i:i+chunk_size] for i in range(0, len(content), chunk_size)]
+
+        for i, chunk in enumerate(chunks):
+            is_complete = (i == len(chunks) - 1)
+
+            # Create and publish streaming event
+            stream_event = LLMStreamEvent(
+                agent_name=self.name,
+                agent_type=self.__class__.__name__,
+                content=chunk,
+                is_complete=is_complete,
+                conversation_id=self.conversation_id,
+                user_id=getattr(self, 'user_id', None)
+            )
+
+            await event_manager.publish(stream_event)
+
+            # Small delay to simulate streaming
+            import asyncio
+            await asyncio.sleep(0.05)  # 50ms delay between chunks
+
+    async def _send_tool_result_event(self, tool_name: str, result: Any):
+        """Send tool result display event"""
+        from app.event import ToolResultDisplayEvent
+        from app.event.manager import event_manager
+
+        result_str = str(result) if result else "No output"
+
+        # Check if result is truncated
+        max_display_length = 200  # Shorter limit for frontend display
+        truncated = len(result_str) > max_display_length
+
+        if truncated:
+            display_result = result_str[:max_display_length] + "..."
+        else:
+            display_result = result_str
+
+        # Create and publish tool result event
+        tool_result_event = ToolResultDisplayEvent(
+            tool_name=tool_name,
+            result=display_result,
+            truncated=truncated,
+            conversation_id=self.conversation_id,
+            user_id=getattr(self, 'user_id', None)
+        )
+
+        await event_manager.publish(tool_result_event)
 
     async def _handle_special_tool(self, name: str, result: Any, **kwargs):
         """Handle special tool execution and state changes"""
@@ -242,9 +368,9 @@ class ToolCallAgent(ReActAgent):
                     )
         logger.info(f"✨ Cleanup complete for agent '{self.name}'.")
 
-    async def run(self, request: Optional[str] = None) -> str:
+    async def run(self, request: Optional[str] = None, conversation_id: Optional[str] = None) -> str:
         """Run the agent with cleanup when done."""
         try:
-            return await super().run(request)
+            return await super().run(request, conversation_id=conversation_id)
         finally:
             await self.cleanup()

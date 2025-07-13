@@ -649,6 +649,7 @@ class LLM:
         tools: Optional[List[dict]] = None,
         tool_choice: TOOL_CHOICE_TYPE = ToolChoice.AUTO,  # type: ignore
         temperature: Optional[float] = None,
+        stream_callback: Optional[callable] = None,
         **kwargs,
     ) -> ChatCompletionMessage | None:
         """
@@ -661,6 +662,7 @@ class LLM:
             tools: List of tools to use
             tool_choice: Tool choice strategy
             temperature: Sampling temperature for the response
+            stream_callback: Optional callback for streaming responses
             **kwargs: Additional completion arguments
 
         Returns:
@@ -729,14 +731,20 @@ class LLM:
                 )
 
             params["stream"] = False  # Always use non-streaming for tool requests
-            response: ChatCompletion = await self.client.chat.completions.create(
-                **params
-            )
+            response = await self.client.chat.completions.create(**params)
+
+            # Debug: Log the response type and content
+            logger.debug(f"LLM response type: {type(response)}")
+            logger.debug(f"LLM response: {response}")
+
+            # Check if response is a ChatCompletion object
+            if not hasattr(response, 'choices'):
+                logger.error(f"Invalid response format. Expected ChatCompletion, got {type(response)}: {response}")
+                return None
 
             # Check if response is valid
             if not response.choices or not response.choices[0].message:
-                print(response)
-                # raise ValueError("Invalid or empty response from LLM")
+                logger.warning(f"Empty response from LLM: {response}")
                 return None
 
             # Update token counts

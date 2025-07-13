@@ -8,9 +8,10 @@ from app.llm import LLM
 from app.logger import logger
 from app.sandbox.client import SANDBOX_CLIENT
 from app.schema import ROLE_TYPE, AgentState, Memory, Message
+from app.event import EventAwareMixin, create_agent_step_start_event, AgentStepCompleteEvent
 
 
-class BaseAgent(BaseModel, ABC):
+class BaseAgent(BaseModel, EventAwareMixin, ABC):
     """Abstract base class for managing agent state and execution.
 
     Provides foundational functionality for state transitions, memory management,
@@ -20,6 +21,12 @@ class BaseAgent(BaseModel, ABC):
     # Core attributes
     name: str = Field(..., description="Unique name of the agent")
     description: Optional[str] = Field(None, description="Optional agent description")
+
+    # Event tracking
+    conversation_id: Optional[str] = Field(None, description="Current conversation ID for event tracking")
+
+    # Interrupt handling
+    interrupted: bool = Field(default=False, description="Whether the agent has been interrupted")
 
     # Prompts
     system_prompt: Optional[str] = Field(
@@ -113,11 +120,12 @@ class BaseAgent(BaseModel, ABC):
         kwargs = {"base64_image": base64_image, **(kwargs if role == "tool" else {})}
         self.memory.add_message(message_map[role](content, **kwargs))
 
-    async def run(self, request: Optional[str] = None) -> str:
+    async def run(self, request: Optional[str] = None, conversation_id: Optional[str] = None) -> str:
         """Execute the agent's main loop asynchronously.
 
         Args:
             request: Optional initial user request to process.
+            conversation_id: Optional conversation ID for event tracking.
 
         Returns:
             A string summarizing the execution results.
@@ -128,29 +136,81 @@ class BaseAgent(BaseModel, ABC):
         if self.state != AgentState.IDLE:
             raise RuntimeError(f"Cannot run agent from state: {self.state}")
 
+        # Set conversation ID for event tracking
+        if conversation_id:
+            self.conversation_id = conversation_id
+
         if request:
             self.update_memory("user", request)
 
         results: List[str] = []
-        async with self.state_context(AgentState.RUNNING):
-            while (
-                self.current_step < self.max_steps and self.state != AgentState.FINISHED
-            ):
-                self.current_step += 1
-                logger.info(f"Executing step {self.current_step}/{self.max_steps}")
-                step_result = await self.step()
 
-                # Check for stuck state
-                if self.is_stuck():
-                    self.handle_stuck_state()
+        try:
+            async with self.state_context(AgentState.RUNNING):
+                while (
+                    self.current_step < self.max_steps and
+                    self.state != AgentState.FINISHED and
+                    not self.interrupted
+                ):
+                    self.current_step += 1
+                    logger.info(f"Executing step {self.current_step}/{self.max_steps}")
 
-                results.append(f"Step {self.current_step}: {step_result}")
+                    # Check for interrupt before starting step
+                    if await self._check_interrupt():
+                        logger.info(f"Agent interrupted at step {self.current_step}")
+                        results.append(f"Interrupted at step {self.current_step}")
+                        break
 
-            if self.current_step >= self.max_steps:
-                self.current_step = 0
-                self.state = AgentState.IDLE
-                results.append(f"Terminated: Reached max steps ({self.max_steps})")
-        await SANDBOX_CLIENT.cleanup()
+                    # Publish step start event
+                    await self.publish_agent_step_start(self.current_step)
+
+                    try:
+                        step_result = await self.step()
+
+                        # Check for interrupt after step execution
+                        if await self._check_interrupt():
+                            logger.info(f"Agent interrupted after step {self.current_step}")
+                            results.append(f"Interrupted after step {self.current_step}")
+                            break
+
+                        # Publish step complete event
+                        await self.publish_agent_step_complete(self.current_step, step_result)
+
+                        # Check for stuck state
+                        if self.is_stuck():
+                            self.handle_stuck_state()
+
+                        results.append(f"Step {self.current_step}: {step_result}")
+
+                    except Exception as e:
+                        # Publish error event
+                        await self.publish_error(
+                            error_type=type(e).__name__,
+                            error_message=str(e),
+                            context={"step": self.current_step, "method": "step"}
+                        )
+                        raise
+
+                if self.interrupted:
+                    self.state = AgentState.IDLE
+                    self.current_step = 0
+                    results.append("Execution interrupted by user")
+                elif self.current_step >= self.max_steps:
+                    self.current_step = 0
+                    self.state = AgentState.IDLE
+                    results.append(f"Terminated: Reached max steps ({self.max_steps})")
+
+        except Exception as e:
+            # Publish general error event
+            await self.publish_error(
+                error_type=type(e).__name__,
+                error_message=str(e),
+                context={"method": "run", "current_step": self.current_step}
+            )
+            raise
+        finally:
+            await SANDBOX_CLIENT.cleanup()
+
         return "\n".join(results) if results else "No steps executed"
 
     @abstractmethod
@@ -184,6 +244,57 @@ class BaseAgent(BaseModel, ABC):
         )
 
         return duplicate_count >= self.duplicate_threshold
+
+    async def _check_interrupt(self) -> bool:
+        """Check if the agent has been interrupted.
+
+        Returns:
+            bool: True if the agent should stop execution
+        """
+        if self.interrupted:
+            return True
+
+        # Check for interrupt events in the conversation
+        if self.conversation_id:
+            try:
+                from app.event.manager import event_manager
+                # Check if there are any recent interrupt events for this conversation
+                recent_events = await event_manager.get_recent_events(
+                    limit=10,
+                    conversation_id=self.conversation_id
+                )
+
+                for event in recent_events:
+                    if (hasattr(event, 'event_type') and
+                        event.event_type == "conversation.interrupt" and
+                        hasattr(event, 'timestamp')):
+                        # Check if interrupt is recent (within last 30 seconds)
+                        from datetime import datetime, timedelta
+                        if isinstance(event.timestamp, str):
+                            from dateutil.parser import parse
+                            event_time = parse(event.timestamp)
+                        else:
+                            event_time = event.timestamp
+
+                        if datetime.now() - event_time.replace(tzinfo=None) < timedelta(seconds=30):
+                            logger.info(f"Found recent interrupt event: {event.event_id}")
+                            self.interrupted = True
+                            return True
+
+            except Exception as e:
+                logger.error(f"Error checking for interrupt events: {e}")
+
+        return False
+
+    def interrupt(self):
+        """Mark the agent as interrupted."""
+        self.interrupted = True
+        logger.info(f"Agent {self.name} marked as interrupted")
+
+    def reset_interrupt(self):
+        """Reset the interrupt flag."""
+        self.interrupted = False
+        logger.debug(f"Agent {self.name} interrupt flag reset")
 
     @property
     def messages(self) -> List[Message]:

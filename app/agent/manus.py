@@ -9,10 +9,14 @@ from app.logger import logger
 from app.prompt.manus import NEXT_STEP_PROMPT, SYSTEM_PROMPT
 from app.tool import Terminate, ToolCollection
 from app.tool.ask_human import AskHuman
-from app.tool.browser_use_tool import BrowserUseTool
+from app.tool.create_chat_completion import CreateChatCompletion
 from app.tool.mcp import MCPClients, MCPClientTool
 from app.tool.python_execute import PythonExecute
 from app.tool.str_replace_editor import StrReplaceEditor
+from app.tool.browser_wrapper import BrowserUseTool
+from app.tool.web_intelligence import WebIntelligenceTool
+from app.tool.crawl4ai_tool import Crawl4AITool
+
 
 
 class Manus(ToolCallAgent):
@@ -34,9 +38,8 @@ class Manus(ToolCallAgent):
     available_tools: ToolCollection = Field(
         default_factory=lambda: ToolCollection(
             PythonExecute(),
-            BrowserUseTool(),
             StrReplaceEditor(),
-            AskHuman(),
+            Crawl4AITool(),
             Terminate(),
         )
     )
